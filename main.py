@@ -19,6 +19,8 @@ CSRF_RE = re.compile(r"/ffw/content.do\?%24csrf=(?P<csrf>\w{24,25})$")
 CONTEXT_RE = re.compile(r"/ffw/form/display.do\?%24context=(?P<context>\w{20})")
 
 FINISHED_FORM_FOLDER = Path("formulare")
+if not FINISHED_FORM_FOLDER.exists():
+    Path.mkdir(FINISHED_FORM_FOLDER)
 
 
 class InputType:
