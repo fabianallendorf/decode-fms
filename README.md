@@ -15,6 +15,7 @@ poetry install
 ## Usage
 
 ```bash
+poetry shell
 python main.py
 ```
 
