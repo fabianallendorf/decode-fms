@@ -13,7 +13,6 @@ import click
 from pathlib import Path
 from random import choice
 
-from typer import colors
 
 FORM_SEGMENT_REGEX = re.compile(
     r"lip_segment-instance:Seite(?P<page>\d+):(?P<form_number>\w+)"
