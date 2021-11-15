@@ -11,6 +11,9 @@ from requests.sessions import Session
 import typer
 import click
 from pathlib import Path
+from random import choice
+
+from typer import colors
 
 FORM_SEGMENT_REGEX = re.compile(
     r"lip_segment-instance:Seite(?P<page>\d+):(?P<form_number>\w+)"
@@ -69,6 +72,10 @@ class SearchResult:
 
 
 class EmptyResultError(Exception):
+    pass
+
+
+class RandomRegexError(Exception):
     pass
 
 
@@ -192,47 +199,76 @@ def run(search_term: str = typer.Option(..., "--search", prompt="Formulare suche
     )
     response_json = do_update(data={}, **update_kwargs)
     form_metadata = _parse_form_metadata(
-        response_json["controlAttribs"], parsed_form_ids=form_items.keys()
+        response_json, parsed_form_ids=form_items.keys()
     )
-    items_triggering_updates = set(
-        key
-        for key, meta in form_metadata.items()
-        if meta.triggers_change and meta.value_type == FormValueType.BOOLEAN
-    )
+    select_choices = response_json["dataIncludes"]
+    items_triggering_updates = [
+        key for key, meta in form_metadata.items() if meta.triggers_change
+    ]
+    items_triggering_updates.reverse()
     visited_key = set()
-    total = 100
-    with typer.progressbar(
-        length=total, label=f"Formular {selected_result.form_id} entschlüsseln"
-    ) as progress:
-        while len(items_triggering_updates) > 0:
-            key = items_triggering_updates.pop()
-            update_kwargs["stage"] += 1
-            response_json = do_update(data={key: "on"}, **update_kwargs)
-            soup = BeautifulSoup(response_json["html"], features="html.parser")
-            new_form_items = parse_form_items(soup)
-            form_items.update(**new_form_items)
-            new_form_metadata = _parse_form_metadata(
-                response_json["controlAttribs"], form_items.keys()
+    total = len(items_triggering_updates)
+    while len(items_triggering_updates) > 0:
+        key = items_triggering_updates.pop()
+        update_kwargs["stage"] += 1
+        item = form_items[key]
+        try:
+            value = _build_value(item, metadata=form_metadata, choices=select_choices)
+        except RandomRegexError:
+            typer.echo(
+                f"Für das Element {repr(key)} kann momentan kein zufälliger Wert generiert werden."
             )
-            form_metadata.update(**new_form_metadata)
-            visited_key.add(key)
-            new_items_triggering_updates = set(
-                k
-                for k, meta in form_metadata.items()
-                if meta.triggers_change
-                and meta.value_type == FormValueType.BOOLEAN
-                and k not in visited_key
-            )
-            items_triggering_updates |= new_items_triggering_updates
-            if len(items_triggering_updates) > 0:
-                progress.update(len(visited_key) / len(items_triggering_updates))
+            continue
+        response_json = do_update(data={key: value}, **update_kwargs)
+        soup = BeautifulSoup(response_json["html"], features="html.parser")
+        select_choices.update(response_json["dataIncludes"])
+        new_form_items = parse_form_items(soup)
+        form_items.update(**new_form_items)
+        new_form_metadata = _parse_form_metadata(response_json, form_items.keys())
+        form_metadata.update(**new_form_metadata)
+        select_choices.update(response_json["dataIncludes"])
+        visited_key.add(key)
+        new_items_triggering_updates = [
+            new_key
+            for new_key, meta in new_form_metadata.items()
+            if meta.triggers_change
+            and new_key not in visited_key
+            and new_key not in items_triggering_updates
+        ]
+        new_items_triggering_updates.reverse()
+        items_triggering_updates += new_items_triggering_updates
+        total = len(visited_key) + len(items_triggering_updates)
+        fraction_done = len(visited_key) / total
+        typer.secho(
+            f"Formular entschlüsselt: {fraction_done:.2%}\r",
+            nl=False,
+            fg=typer.colors.BLUE,
+        )
     save_xml(form=selected_result, form_items=form_items)
 
 
+def _build_value(
+    item: FormInput, metadata: Dict[str, FormInputMeta], choices: Dict[str, str]
+) -> Dict[str, str]:
+    if item.input_type == InputType.CHECKBOX:
+        return "on"
+    elif item.input_type == InputType.SELECT:
+        choice(choices[item.form_id])
+    elif item.input_type == InputType.TEXT:
+        item_metadata = metadata[item.form_id]
+        if item_metadata.regex is not None:
+            raise RandomRegexError()
+        random_string = (
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quisque tellus."
+        )
+        return random_string[item_metadata.min_length : item_metadata.max_length]
+
+
 def _parse_form_metadata(
-    raw_metadata: dict, parsed_form_ids: List[int]
-) -> Dict[int, FormInputMeta]:
-    form_metadata: Dict[int, FormInputMeta] = {}
+    response: dict, parsed_form_ids: List[str]
+) -> Dict[str, FormInputMeta]:
+    raw_metadata = response["controlAttribs"]
+    form_metadata: Dict[str, FormInputMeta] = {}
     for form_id in parsed_form_ids:
         if form_id not in raw_metadata:
             continue
@@ -413,8 +449,10 @@ def save_xml(form: SearchResult, form_items: Dict[str, FormInput]):
         line = f'<element id="{item.form_id}" /><!-- {item.form_number} {item.comment or ""} -->\n'
         template += "\t\t\t" + line
     template += _xml_foot()
-    with open(FINISHED_FORM_FOLDER / f"{form.form_id}.xml", "w") as f:
+    finished_path = FINISHED_FORM_FOLDER / f"{form.form_id}.xml"
+    with open(finished_path, "w") as f:
         f.write(template)
+    typer.secho(f"Entschlüsseltes Formular: {finished_path}", fg=typer.colors.GREEN)
 
 
 def _xml_head(form: SearchResult) -> str:
