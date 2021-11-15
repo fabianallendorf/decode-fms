@@ -20,7 +20,9 @@ def run(search_term: str = typer.Option(..., "--search", prompt="Formulare suche
         if form_items_metadata[key].triggers_change
     ]
     visited_form_item_id = set()
-    with typer.progressbar(items_triggering_updates) as progress:
+    with typer.progressbar(
+        items_triggering_updates, label=f"Formular {form.form_id} entschlüsseln"
+    ) as progress:
         for item in progress:
             depth_first_search_dependencies(
                 item=item,
