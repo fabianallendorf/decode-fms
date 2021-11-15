@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Optional
+from typing import List, Optional
 
 from src.enums import ItemType, FormValueType
 
@@ -13,6 +13,9 @@ class FormItem:
     comment: Optional[str] = None
 
 
+SelectChoices = List[str]
+
+
 @dataclass
 class FormItemMetadata:
     value_type: FormValueType
@@ -23,6 +26,7 @@ class FormItemMetadata:
     max_length: Optional[int]
     regex: Optional[str]
     date_format: Optional[str]
+    choices: Optional[SelectChoices]
 
 
 @dataclass

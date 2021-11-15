@@ -106,7 +106,6 @@ class FormSession:
             if action is not None
             else f"/form/downloadXMLData.do?%24csrf={self.csrf}"
         )
-        self.stage += 1
         form_data = {
             "$csrf": self.csrf,
             "$action": action,
@@ -118,22 +117,23 @@ class FormSession:
             "$viewSettings": '{"ffw.elementScrollbarPositions": {},"ffw.cocusControlId": ,"ffw.scrollTop": 1560}',
             **data,
         }
+        self.stage += 1
         return self.session.post(url=url, data=form_data)
 
 
 class XMLFormSaver:
     FINISHED_FORM_FOLDER = Path("formulare")
 
+    def natural_sort_key(s, _nsre=re.compile("([0-9]+)")):
+        return [
+            int(text) if text.isdigit() else text.lower() for text in _nsre.split(s)
+        ]
+
     @classmethod
     def save_xml(cls, form: Form, form_items: FormItems):
         template = cls._xml_head(form)
 
-        def custom_sort(key: str) -> int:
-            if re.match(r"k\d+", key):
-                return int(key[1:])
-            return -1
-
-        sorted_keys = sorted(list(form_items.keys()), key=custom_sort)
+        sorted_keys = sorted(list(form_items.keys()), key=cls.natural_sort_key)
         for key in sorted_keys:
             item = form_items[key]
             line = f'<element id="{item.form_id}" /><!-- {item.form_number} {item.comment or ""} -->\n'

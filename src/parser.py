@@ -31,9 +31,10 @@ class FormItemParser:
         return form_items
 
     @classmethod
-    def parse_form_item_metdata(cls, response: Response) -> FormMetadata:
+    def parse_form_items_metdata(cls, response: Response) -> FormMetadata:
         json_response = response.json()
         raw_metadata = json_response["controlAttribs"]
+        select_choices = json_response["dataIncludes"]
         form_metadata: FormMetadata = {}
         for form_id, metadata in raw_metadata.items():
             try:
@@ -41,6 +42,8 @@ class FormItemParser:
             except InvalidFormInputError:
                 continue
             form_metadata[form_id] = metadata
+            if form_id in select_choices:
+                form_metadata[form_id].choices = select_choices[form_id]
         return form_metadata
 
     @staticmethod
@@ -63,20 +66,12 @@ class FormItemParser:
             )
         return text_areas
 
-    @staticmethod
-    def parse_text_input(tag: Tag, page: int, form_number: str) -> FormItems:
+    @classmethod
+    def parse_text_input(cls, tag: Tag, page: int, form_number: str) -> FormItems:
         text_items: FormItems = {}
         text_item_tags = tag.find_all("input", type="text")
         for input in text_item_tags:
-            tag_siblings = [s for s in input.next_siblings if isinstance(s, Tag)]
-            if len(tag_siblings) == 0:
-                continue
-            sibling = tag_siblings[0]
-            input_type = (
-                ItemType.SELECT
-                if sibling.name == "a" and sibling.attrs["id"].startswith("opener")
-                else ItemType.TEXT
-            )
+            input_type = cls._get_text_input_type(input=input)
             identifier = input.attrs["name"]
             text_items[identifier] = FormItem(
                 page=page,
@@ -143,11 +138,25 @@ class FormItemParser:
             max_length=max_length,
             regex=regex,
             date_format=date_format,
+            choices=None,
         )
 
     @staticmethod
     def _is_segment(tag_id: str):
         return tag_id is not None and FORM_SEGMENT_REGEX.match(tag_id)
+
+    @staticmethod
+    def _get_text_input_type(input: Tag) -> ItemType:
+        tag_siblings = [s for s in input.next_siblings if isinstance(s, Tag)]
+        input_type = ItemType.TEXT
+        if len(tag_siblings) > 0:
+            sibling = tag_siblings[0]
+            input_type = (
+                ItemType.SELECT
+                if sibling.name == "a" and sibling.attrs["id"].startswith("opener")
+                else ItemType.TEXT
+            )
+        return input_type
 
 
 class SearchResultParser:
