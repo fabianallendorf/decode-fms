@@ -170,17 +170,13 @@ class SearchResultParser:
             r for r in raw_search_results["results"] if r.get("clickable", False)
         ]
         for index, raw_result in enumerate(clickable_raw_results):
-            search_result = cls._parse_search_result(raw_result["value"])
+            search_result = cls._parse_search_result(raw_result)
             search_results[index + 1] = search_result
         return search_results
 
     @staticmethod
-    def _parse_search_result(html_value: str) -> Form:
-        html = BeautifulSoup(html_value, features="html.parser")
-        display_name = html.find("div", class_="title").text
-        subtitles = html.find_all("div", class_="subtitle")
-        form_id_span = subtitles[0]
-        form_id = form_id_span.find("span").contents[1].text
-        path_span = subtitles[1]
-        path = path_span.find("span").contents[1].text
+    def _parse_search_result(entry: dict) -> Form:
+        display_name = entry["title"]
+        form_id = entry["formId"]
+        path = entry["catalogPath"]
         return Form(display_name=display_name, form_id=form_id, form_path=path)

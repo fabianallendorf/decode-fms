@@ -13,10 +13,11 @@ from src.dataclasses import Form
 from src.errors import EmptyResultError
 from src.parser import SearchResultParser
 from src.types import FormItems, SearchResults
+from src.errors import NoCSRFTokenFound
 
 
 class FMSSession:
-    CSRF_RE = re.compile(r"/ffw/content.do\?%24csrf=(?P<csrf>\w{24,25})$")
+    CSRF_RE = re.compile(r"name=\"\$csrf\"\s+value=\"(?P<csrf>\w+)\"")
 
     def __init__(self):
         session = Session()
@@ -28,13 +29,15 @@ class FMSSession:
             "https://www.formulare-bfinv.de/ffw/action/invoke.do?id=Welcome",
             data={"clientCaps": "moz;94.0;document.getElementById;frames"},
         )
-        match = self.CSRF_RE.match(response.request.path_url)
+        match = self.CSRF_RE.search(response.content.decode())
         if match is None:
-            sys.exit(1)
+            raise NoCSRFTokenFound
         csrf_token = match.groupdict()["csrf"]
 
         url = self._build_search_url(term=search_term, csrf=csrf_token)
-        response = self.session.get(url=url)
+        response = self.session.get(
+            url=url, headers={"X-Requested-With": "XMLHttpRequest"}
+        )
         try:
             search_results = SearchResultParser.parse_search_results(response)
         except EmptyResultError:
@@ -48,14 +51,12 @@ class FMSSession:
 
     def open_form(self, form: Form) -> Response:
         open_link = "https://www.formulare-bfinv.de/ffw/catalog/openForm.do"
-        data = {
-            "$requestType": "ajax",
+        params = {
             "path": f"catalog://{form.form_path}/{form.form_id}",
-            "setCurrentFolder": "false",
         }
-        response = self.session.post(open_link, data=data)
-        redirect_url = response.json()["redirectTo"]
-        response = self.session.get(f"https://www.formulare-bfinv.de/ffw{redirect_url}")
+        response = self.session.get(open_link, params=params)
+        redirect_url = response.url
+        response = self.session.get(redirect_url)
         return response
 
     def _get_user_selection(self, search_results: SearchResults) -> Form:
@@ -80,8 +81,7 @@ class FMSSession:
             typer.echo(item, color=True)
 
     def _build_search_url(self, term: str, csrf: str):
-        timestamp = datetime.now().timestamp
-        return f"https://www.formulare-bfinv.de/ffw/search/globalSearch.do?_dc={timestamp}&lip_globalSearchType=forms&%24csrf={csrf}&lip_globalSearch={term}&%24requestType=ajax"
+        return f"https://www.formulare-bfinv.de/ffw/search/globalSearch.do?lip_globalSearchType=forms&%24csrf={csrf}&lip_globalSearch={term}"
 
 
 class FormSession:
@@ -101,24 +101,21 @@ class FormSession:
     def do_update(self, data: dict = None, action: str = None) -> Response:
         url = "https://www.formulare-bfinv.de/ffw/form/update.do"
         data = data or {}
-        action = (
-            action
-            if action is not None
-            else f"/form/downloadXMLData.do?%24csrf={self.csrf}"
-        )
+        action = action if action is not None else "/form/print.do"
         form_data = {
             "$csrf": self.csrf,
             "$action": action,
             "$instanceIndex": self.instanceIndex,
             "$context": self.context,
-            "$requestType": "ajax",
             "$finalizer": self.finalizer,
             "$stage": str(self.stage),
             "$viewSettings": '{"ffw.elementScrollbarPositions": {},"ffw.cocusControlId": ,"ffw.scrollTop": 1560}',
             **data,
         }
         self.stage += 1
-        return self.session.post(url=url, data=form_data)
+        return self.session.post(
+            url=url, data=form_data, headers={"X-Requested-With": "XMLHttpRequest"}
+        )
 
 
 class XMLFormSaver:

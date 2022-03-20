@@ -8,3 +8,7 @@ class RandomRegexError(Exception):
 
 class InvalidFormInputError(Exception):
     pass
+
+
+class NoCSRFTokenFound(Exception):
+    pass

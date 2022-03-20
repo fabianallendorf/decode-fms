@@ -6,6 +6,7 @@ from src.services import FormSession
 from src.types import FormID, FormItems, FormMetadata, UpdatePayload
 from src.errors import RandomRegexError
 from random import choice
+import exrex
 
 
 def depth_first_search_dependencies(
@@ -57,10 +58,9 @@ def _build_payload_value(item: FormItem, metadata: FormItemMetadata) -> str:
         choice(metadata.choices)
     elif item.input_type == ItemType.TEXT:
         if metadata.regex is not None:
-            raise RandomRegexError()
-        random_string = (
-            "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quisque tellus."
-        )
+            random_string = exrex.getone(metadata.regex)
+        else:
+            random_string = "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Quisque tellus."
         return random_string[metadata.min_length : metadata.max_length]
 
 
